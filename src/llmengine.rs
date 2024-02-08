@@ -53,8 +53,8 @@ pub fn start_engine(ui_handle: slint::Weak<crate::AppWindow>, receiver: std::syn
     //super::update_dialog(ui_handle.clone(), msg);
 
     let args = Args {
-        tokenizer: String::from("./models/openchat-3.5-gguf/tokenizer.json"),
-        model: String::from("./models/openchat-3.5-gguf/openchat_3.5.Q4_K_M.gguf"),
+        tokenizer: String::from("./models/openchat-3.5-0106-GGUF/tokenizer.json"),
+        model: String::from("./models/openchat-3.5-0106-GGUF/openchat-3.5-0106.Q4_K_S.gguf"),
         sample_len: 300,
         temperature: 0.8,
         seed: 299792458,
@@ -69,7 +69,7 @@ pub fn start_engine(ui_handle: slint::Weak<crate::AppWindow>, receiver: std::syn
     let start = std::time::Instant::now();
 
     // This is the model instance
-    let model = gguf_file::Content::read(&mut file)?;
+    let mut model = gguf_file::Content::read(&mut file)?;
     let mut total_size_in_bytes = 0;
     for (_, tensor) in model.tensor_infos.iter() {
         let elem_count = tensor.shape.elem_count();
@@ -82,9 +82,45 @@ pub fn start_engine(ui_handle: slint::Weak<crate::AppWindow>, receiver: std::syn
         total_size_in_bytes,
         start.elapsed().as_secs_f32(),
     );
+    if let Some(value) = model.metadata.remove("phi2.embedding_length") {
+        model.metadata.insert("llama.embedding_length".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.feed_forward_length") {
+        model.metadata.insert("llama.feed_forward_length".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.block_count") {
+        model.metadata.insert("llama.block_count".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.attention.head_count_kv") {
+        model.metadata.insert("llama.attention.head_count_kv".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.attention.layer_norm_epsilon") {
+        model.metadata.insert("llama.attention.layer_norm_rms_epsilon".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.context_length") {
+        model.metadata.insert("llama.context_length".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.attention.head_count") {
+        model.metadata.insert("llama.attention.head_count".to_string(), value);
+    }
+    if let Some(value) = model.metadata.remove("phi2.rope.dimension_count") {
+        model.metadata.insert("llama.rope.dimension_count".to_string(), value);
+    }
     super::update_dialog(ui_handle.clone(), msg);
     super::update_dialog(ui_handle.clone(), "loading model...".to_string());
-    let mut model = quantized_model::ModelWeights::from_gguf(model, &mut file)?;
+    let md_print_all = || {
+        for (key, value) in model.metadata.iter() {
+            println!("Key: {}", key);
+        }
+    };
+    md_print_all();
+    let mut model = match quantized_model::ModelWeights::from_gguf(model, &mut file) {
+        Ok(result) => result,
+        Err(error) => {
+            println!("Error: {:?}", error);
+            return Err(anyhow::anyhow!("exit".to_string()));
+        }
+    };
     let msg = format!("model built.");
     super::update_dialog(ui_handle.clone(), msg);
 
